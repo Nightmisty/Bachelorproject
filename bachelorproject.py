@@ -1,4 +1,4 @@
-import networkx
+import networkx 
 import random
 
 def create_ring_of_cliques(cliquesize:int)-> networkx.Graph:
@@ -86,8 +86,16 @@ def flip_edge(Graph:networkx.Graph):
 
     return new_Graph
 
+Graph = create_ring_of_cliques(3)
+print("#### Create a Ring of 3-Cliques and check the edgeflip function")
+print("Edges before flip:")
+print(Graph.edges)
+flipped_Graph = flip_edge(Graph)
+print("Edges after flip:")
+print(flipped_Graph.edges)
 
-def cut(Graph:networkx.Graph):
+
+def make_sets(Graph:networkx.Graph):
     S = set()
     T = set()
     for node in Graph.nodes():
@@ -106,6 +114,17 @@ def cut_size(S:set, T:set, Graph: networkx.Graph)-> int:
             outgoing.append((u, v))
     return len(outgoing)
 
+S,T = make_sets(Graph)
+print("##### Test the cut size and cut strain functions on the original graph and the flipped graph")
+print("The Set S:")
+print(S)
+print("Cut size original:")
+print(cut_size(S,T,Graph))
+print("Cut size flipped:")
+print(cut_size(S,T,flipped_Graph))
+
+
+
 def cut_strain(S:set, T:set, Graph: networkx.Graph)-> int:
     
     cut_strain = 0
@@ -121,13 +140,16 @@ def cut_strain(S:set, T:set, Graph: networkx.Graph)-> int:
         cut_strain += ((neighbours_in_S/Graph.number_of_nodes())*(neighbours_in_T/Graph.number_of_nodes()))
     return cut_strain
 
-
+print("Cut strain original:")
+print(cut_strain(S,T,Graph))
+print("Cut strain flipped:")
+print(cut_strain(S,T,flipped_Graph))
 
 def avg_cutsize_in_30_runs(Graph: networkx.Graph) -> int:
     sum = 0
     for i in range(0,29):
         current_Graph = flip_edge(Graph)
-        S,T = cut(current_Graph)
+        S,T = make_sets(current_Graph)
         sum += cut_size(S,T,current_Graph)
     result = round((sum/30), 4)
     return result
@@ -136,12 +158,12 @@ def avg_cutstrain_in_30_runs(Graph: networkx.Graph) -> int:
     sum = 0
     for i in range(0,29):
         current_Graph = flip_edge(Graph)
-        S,T = cut(current_Graph)
+        S,T = make_sets(current_Graph)
         sum += cut_strain(S,T,current_Graph)
     result = round((sum/30), 4)
     return result
 
-def convergance(Graph: networkx.Graph, rounds: int)-> (list[int],list[int]):
+def convergance(Graph: networkx.Graph, rounds: int):
     # the lists of size and strain shall document the change over time during the rounds. they are equivilent to the data points
     # that i want to visualize in a graphic picture later
     avg_size = []
@@ -162,8 +184,10 @@ def convergance(Graph: networkx.Graph, rounds: int)-> (list[int],list[int]):
     return (avg_size,avg_strain)
 
 
-Graph = create_ring_of_cliques(7)
+Graph2 = create_ring_of_cliques(7)
 
-Size, Strain = convergance(Graph,1000)
+Size, Strain = convergance(Graph2,1000)
+print("\n ####Check on Cut Size and Cut Strain of a 7-Ring-of-cliques over 1000 runs." \
+" It unfortunately does not converge")
 print(Size)
 print(Strain)
