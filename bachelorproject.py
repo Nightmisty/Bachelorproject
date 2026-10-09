@@ -1,7 +1,8 @@
 import networkx 
 import random
+import math
 
-def create_ring_of_cliques(cliquesize:int)-> networkx.Graph:
+def create_ring_of_cliques(cliquesize:int):
     Graph = networkx.DiGraph()
     cliques = []
     for i in range(cliquesize):
@@ -20,8 +21,10 @@ def create_ring_of_cliques(cliquesize:int)-> networkx.Graph:
         next_first_node = cliques[(i+1)%cliquesize][0]
         Graph.remove_edge(last_node,first_node)
         Graph.add_edge(last_node,next_first_node)
-    
-    return Graph
+    # divide the Graph in two sets that are only connected by 2 edges
+    S = set(range(math.floor(cliquesize/2)*cliquesize))
+    T = set(Graph.nodes())- S
+    return Graph, S, T
 
 
 def flip_edge(Graph:networkx.Graph):
@@ -46,10 +49,6 @@ def flip_edge(Graph:networkx.Graph):
         ]
         node4 = random.choice(node4_candidates)
 
-        if (node1 == node3 or node2 == node4 or node3 == node4):
-            continue
-
-
         old_edges = {
             (node1, node2),
             (node2, node3),
@@ -68,7 +67,7 @@ def flip_edge(Graph:networkx.Graph):
         if len(new_edges) != 3:
             continue
 
-
+        # has a successful flip been found? I not: continue searching
         is_in_graph = False
         for edge in new_edges:
             if Graph.has_edge(*edge) and edge not in old_edges:
@@ -86,7 +85,7 @@ def flip_edge(Graph:networkx.Graph):
 
     return new_Graph
 
-Graph = create_ring_of_cliques(3)
+Graph, S, T = create_ring_of_cliques(3)
 print("#### Create a Ring of 3-Cliques and check the edgeflip function")
 print("Edges before flip:")
 print(Graph.edges)
@@ -95,15 +94,6 @@ print("Edges after flip:")
 print(flipped_Graph.edges)
 
 
-def make_sets(Graph:networkx.Graph):
-    S = set()
-    T = set()
-    for node in Graph.nodes():
-        if random.random() < 0.5:
-            S.add(node)
-        else:
-            T.add(node)
-    return S,T
 
 def cut_size(S:set, T:set, Graph: networkx.Graph)-> int:
     outgoing = []
@@ -114,7 +104,6 @@ def cut_size(S:set, T:set, Graph: networkx.Graph)-> int:
             outgoing.append((u, v))
     return len(outgoing)
 
-S,T = make_sets(Graph)
 print("##### Test the cut size and cut strain functions on the original graph and the flipped graph")
 print("The Set S:")
 print(S)
@@ -125,19 +114,19 @@ print(cut_size(S,T,flipped_Graph))
 
 
 
-def cut_strain(S:set, T:set, Graph: networkx.Graph)-> int:
-    
+def cut_strain(S:set, T:set, Graph: networkx.Graph)-> float:
     cut_strain = 0
     for node in Graph.nodes:
         neighbours_in_S = 0
         neighbours_in_T = 0
         for u,v in Graph.edges:
-            if v in S:
-                neighbours_in_S += 1
-            else:
-                neighbours_in_T += 1
-        # Calculate the partial sum. Correct?
-        cut_strain += ((neighbours_in_S/Graph.number_of_nodes())*(neighbours_in_T/Graph.number_of_nodes()))
+            if u == node:
+                if v in S:
+                    neighbours_in_S += 1
+                else:
+                    neighbours_in_T += 1
+        all_neighbours = neighbours_in_S + neighbours_in_T
+        cut_strain += ((neighbours_in_S/all_neighbours)*(neighbours_in_T/all_neighbours))
     return cut_strain
 
 print("Cut strain original:")
@@ -145,29 +134,13 @@ print(cut_strain(S,T,Graph))
 print("Cut strain flipped:")
 print(cut_strain(S,T,flipped_Graph))
 
-def avg_cutsize_in_30_runs(Graph: networkx.Graph) -> int:
-    sum = 0
-    for i in range(0,29):
-        current_Graph = flip_edge(Graph)
-        S,T = make_sets(current_Graph)
-        sum += cut_size(S,T,current_Graph)
-    result = round((sum/30), 4)
-    return result
 
-def avg_cutstrain_in_30_runs(Graph: networkx.Graph) -> int:
-    sum = 0
-    for i in range(0,29):
-        current_Graph = flip_edge(Graph)
-        S,T = make_sets(current_Graph)
-        sum += cut_strain(S,T,current_Graph)
-    result = round((sum/30), 4)
-    return result
 
-def convergance(Graph: networkx.Graph, rounds: int):
+def flip_chain_simulation(Graph: networkx.Graph, S, T , rounds: int):
     # the lists of size and strain shall document the change over time during the rounds. they are equivilent to the data points
     # that i want to visualize in a graphic picture later
-    avg_size = []
-    avg_strain = []
+    cut_sizes = []
+    cut_strains = []
     current_Graph = Graph
     for i in range(1,rounds):
         current_Graph = flip_edge(current_Graph)
@@ -175,19 +148,40 @@ def convergance(Graph: networkx.Graph, rounds: int):
         # datapoints 
         if rounds > 100:
             if i%10 == 0:
-                avg_size.append(avg_cutsize_in_30_runs(current_Graph))
-                avg_strain.append(avg_cutstrain_in_30_runs(current_Graph))
+                cut_sizes.append(cut_size(S,T,current_Graph))
+                cut_strains.append(cut_strain(S,T,current_Graph))
         else:
-            avg_size.append(avg_cutsize_in_30_runs(current_Graph))
-            avg_strain.append(avg_cutstrain_in_30_runs(current_Graph))
+            cut_sizes.append(cut_size(S,T,current_Graph))
+            cut_strains.append(cut_strain(S,T,current_Graph))
     
-    return (avg_size,avg_strain)
+    return (cut_sizes,cut_strains)
 
+def average_over_30_simulations(Graph, S, T, rounds):
 
-Graph2 = create_ring_of_cliques(7)
+    avg_sizes = []
+    avg_strains = []
 
-Size, Strain = convergance(Graph2,1000)
-print("\n ####Check on Cut Size and Cut Strain of a 7-Ring-of-cliques over 1000 runs." \
-" It unfortunately does not converge")
+    for i in range(30):
+        sizes, strains = flip_chain_simulation(Graph, S, T, rounds)
+        if i == 0:
+            avg_sizes = sizes.copy()
+            avg_strains = strains.copy()
+        else:
+            for j in range(len(sizes)):
+                avg_sizes[j] += sizes[j]
+            for j in range(len(strains)):
+                avg_strains[j] += strains[j]
+
+    for j in range(len(avg_sizes)):
+        avg_sizes[j] /= 30
+    for j in range(len(avg_strains)):
+        avg_strains[j] /= 30
+
+    return avg_sizes, avg_strains
+
+Graph2, S, T = create_ring_of_cliques(7)
+
+Size, Strain = average_over_30_simulations(Graph2,S , T,1000)
+print("\n ####Check on Cut Size and Cut Strain of a 7-Ring-of-cliques over 1000 runs")
 print(Size)
 print(Strain)
