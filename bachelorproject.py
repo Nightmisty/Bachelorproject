@@ -6,6 +6,8 @@ import numpy
 from itertools import combinations
 import csv
 import json
+import pandas as pd
+from math import isclose
 
 def create_ring_of_cliques(cliquenumbers:int):
     Graph = networkx.DiGraph()
@@ -27,7 +29,6 @@ def create_ring_of_cliques(cliquenumbers:int):
         Graph.remove_edge(last_node,first_node)
         Graph.add_edge(last_node,next_first_node)
         edges = Graph.add_edge(last_node,next_first_node)
-        print(edges)
     # divide the Graph in two sets that are only connected by 2 edges
     S = set(range(math.floor(cliquenumbers / 2) * 5))
     T = set(Graph.nodes())- S
@@ -215,33 +216,7 @@ def flip_chain_simulation_for_changes(Graph, S, T, rounds, samples=1000):
     return cut_strain_mean, expected_changes
 
 
-def average_over_30_simulations(Graph, S, T, rounds):
-
-    avg_sizes = [0,1]
-    avg_strain_out = [0,375]
-    avg_strain_in = [0,375]
-    avg_strain_mean = [0,375]
-    for i in range(30):
-        sizes, strain_out, strain_in, strain_mean = flip_chain_simulation(Graph, S, T, rounds)
-        if i == 0:
-            avg_sizes = sizes.copy()
-            avg_strain_out = strain_out.copy()
-            avg_strain_in = strain_in.copy()
-            avg_strain_mean = strain_mean.copy()
-        else:
-            for j in range(len(sizes)):
-                avg_sizes[j] += sizes[j]
-            for j in range(len(strain_out)):
-                avg_strain_out[j] += strain_out[j]
-
-    for j in range(len(avg_sizes)):
-        avg_sizes[j] /= 30
-    for j in range(len(avg_strain_out)):
-        avg_strain_out[j] /= 30
-
-    return avg_sizes, avg_strain_out, avg_strain_in, avg_strain_mean
-
-def expected_cut_strain_change(Graph, S, T, samples=100):
+def expected_cut_strain_change(Graph, S, T, samples=1000):
 
     # Cut Strain vor dem Flip
     _, _, current_strain = cut_strain(S, T, Graph)
@@ -261,7 +236,25 @@ def expected_cut_strain_change(Graph, S, T, samples=100):
     # Durchschnittliche Veränderung
     return numpy.mean(changes)
 
+def expected_cut_strain_change_in_and_out(Graph, S, T, samples=10000):
 
+    current_out, current_in, _ = cut_strain(S, T, Graph)
+
+    changes_out = []
+    changes_in = []
+
+    for i in range(samples):
+        next_Graph, _, _ = flip_edge(Graph)
+        next_out, next_in, _ = cut_strain(S, T, next_Graph)
+
+        changes_out.append(next_out - current_out)
+        changes_in.append(next_in - current_in)
+
+    expected_out = numpy.mean(changes_out)
+    expected_in = numpy.mean(changes_in)
+    expected_directed = (expected_out + expected_in) / 2
+
+    return expected_out, expected_in, expected_directed
 
 def generate_all_cuts(Graph: networkx):
     nodes = list(Graph.nodes())
@@ -281,16 +274,18 @@ def generate_all_cuts(Graph: networkx):
 
 def search_easteregg(
     Graph: networkx.DiGraph,
-    rounds=150,
+    rounds=90,
     samples=1000,
     max_positive=15,
     max_cuts=None
 ):
     original_Graph = Graph.copy()
     tested_cuts = 0
+    max_number_neg_averages = 0
 
     for S, T in generate_all_cuts(original_Graph):
-
+        if len(S) < 6 or len(T) < 6:
+            continue
         # Only consider cuts with initially low cut strain
         _, _, initial_strain = cut_strain(S, T, original_Graph)
 
@@ -301,7 +296,8 @@ def search_easteregg(
 
         current_Graph = original_Graph.copy()
         positive_count = 0
-
+        neg_rounds = 0
+        
         expected_changes = []
         actual_strains = [initial_strain]
         flip_history = []
@@ -310,6 +306,9 @@ def search_easteregg(
 
         for step in range(rounds):
 
+            if tested_cuts == 1000:
+                print("Maximum negatives:", max_number_neg_averages)
+                return 0
             # Estimate expected one-step change from current graph
             average = expected_cut_strain_change(
                 current_Graph, S, T, samples
@@ -320,10 +319,12 @@ def search_easteregg(
             # Allow up to 15 nonnegative estimates
             if average >= 0:
                 positive_count += 1
-
+            neg_rounds += 1
             if positive_count > max_positive:
+                if neg_rounds > max_number_neg_averages:
+                    max_number_neg_averages = neg_rounds
                 break
-
+            
             # Perform one actual flip
             current_Graph, old_edges, new_edges = flip_edge(
                 current_Graph
@@ -338,7 +339,7 @@ def search_easteregg(
             # Record actual strain after the flip
             _, _, strain = cut_strain(S, T, current_Graph)
             actual_strains.append(float(strain))
-
+        
         # Successful cut: all 200 steps completed
         if len(flip_history) == rounds:
 
@@ -362,6 +363,7 @@ def search_easteregg(
             print("Initial strain:", initial_strain)
             print("Negative estimates:", rounds - positive_count)
             print("Nonnegative estimates:", positive_count)
+            
 
             return result
 
@@ -373,67 +375,67 @@ def search_easteregg(
     
 
 
-
+search= False
 
 Graph, S, T = create_ring_of_cliques(5)
 
 #V = {5*i + j for i in range(25) for j in (0, 1)}
 #W = set(Graph.nodes()) - V
+if search == True:
+    result = search_easteregg(Graph)
 
-result = search_easteregg(Graph)
+    strain, expected_changes = flip_chain_simulation_for_changes(Graph, S, T,rounds=300,samples=1000)
+    if result != 0:
 
-strain, expected_changes = flip_chain_simulation_for_changes(Graph, S, T,rounds=300,samples=1000)
-if result is not None:
+        # Save initial graph, cut and flip sequence
+        documentation = {
+            "original_nodes": list(result["original_graph"].nodes()),
+            "original_edges": [
+                list(edge)
+                for edge in result["original_graph"].edges()
+            ],
+            "S": sorted(result["S"]),
+            "T": sorted(result["T"]),
+            "initial_strain": result["initial_strain"],
+            "flip_history": result["flip_history"]
+        }
 
-    # Save initial graph, cut and flip sequence
-    documentation = {
-        "original_nodes": list(result["original_graph"].nodes()),
-        "original_edges": [
-            list(edge)
-            for edge in result["original_graph"].edges()
-        ],
-        "S": sorted(result["S"]),
-        "T": sorted(result["T"]),
-        "initial_strain": result["initial_strain"],
-        "flip_history": result["flip_history"]
-    }
+        with open("found_cut.json", "w", encoding="utf-8") as file:
+            json.dump(documentation, file, indent=2)
 
-    with open("found_cut.json", "w", encoding="utf-8") as file:
-        json.dump(documentation, file, indent=2)
+        # Save strain development
+        with open("strain_development.csv", "w", newline="") as file:
+            writer = csv.writer(file)
 
-    # Save strain development
-    with open("strain_development.csv", "w", newline="") as file:
-        writer = csv.writer(file)
-
-        writer.writerow([
-            "step",
-            "actual_strain_before_flip",
-            "estimated_expected_change",
-            "actual_strain_after_flip"
-        ])
-
-        for i in range(len(result["expected_changes"])):
             writer.writerow([
-                i + 1,
-                result["actual_strains"][i],
-                result["expected_changes"][i],
-                result["actual_strains"][i + 1]
+                "step",
+                "actual_strain_before_flip",
+                "estimated_expected_change",
+                "actual_strain_after_flip"
             ])
 
-     #Plot expected one-step changes
-    plt.figure(figsize=(10, 5))
-    plt.plot(
-        range(1, 151),
-        result["expected_changes"],
-        label="Estimated expected change"
-    )
-    plt.axhline(0, color="black", linestyle="--")
-    plt.xlabel("Flip step")
-    plt.ylabel("Expected change in cut strain")
-    plt.title("Expected cut strain change over 200 flips")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+            for i in range(len(result["expected_changes"])):
+                writer.writerow([
+                    i + 1,
+                    result["actual_strains"][i],
+                    result["expected_changes"][i],
+                    result["actual_strains"][i + 1]
+                ])
+
+        #Plot expected one-step changes
+        plt.figure(figsize=(10, 5))
+        plt.plot(
+            range(1, 91),
+            result["expected_changes"],
+            label="Estimated expected change"
+        )
+        plt.axhline(0, color="black", linestyle="--")
+        plt.xlabel("Flip step")
+        plt.ylabel("Expected change in cut strain")
+        plt.title("Expected cut strain change over 200 flips")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
 
 
 def flip_specific_edges(Graph: networkx.Graph, old_edges, new_edges):
@@ -451,32 +453,35 @@ def replay_flip_history(Graph, S, T, flip_history, samples= 1000):
 
         cut_strain_means = []
         expected_changes = []
-
+        
     # Replay recorded flips
         for step in range(len(flip_history) + 1):
-            if step == 50:
-                print("Edge_list step 50:")
-                for edge in current_Graph.edges:
-                    print(edge[0], edge[1])
-            if step == 100:
-                print("Edge_list step 100:")
-                for edge in current_Graph.edges:
-                    print(edge[0], edge[1])
-            if step == len(flip_history):
-                print("Edge_list final:")
-                for edge in current_Graph.edges:
-                    print(edge[0], edge[1])
+            
 
         # Actual mean cut strain
-            _, _, mean = cut_strain(S, T, current_Graph)
+            cut_out, cut_in, mean = cut_strain(S, T, current_Graph)
             cut_strain_means.append(float(mean))
-
+            if step == 87:
+                print("Actual change:", mean)
+            if step == 88:
+                print("Actual Change:", mean)
         # Expected change in mean cut strain
             expected_change = expected_cut_strain_change(
                 current_Graph, S, T, samples
             )
             expected_changes.append(float(expected_change))
 
+            if step == 87:
+
+                expec_out87 , expec_in87, direc87 = expected_cut_strain_change_in_and_out(current_Graph, S, T, 100000)
+                print("cut_out 87", expec_out87)
+                print("cut_in 87", expec_in87)
+                print("expected change 87:", direc87)
+            if step == 88:
+                expec_out88 , expec_in88, direc88 = expected_cut_strain_change_in_and_out(current_Graph, S, T, 100000)
+                print("cut_out 88", expec_out88)
+                print("cut_in 88", expec_in88)
+                print("expected change 88:", direc88)
         # No further flip after the last state
             if step == len(flip_history):
                 break
@@ -505,43 +510,123 @@ def replay_flip_history(Graph, S, T, flip_history, samples= 1000):
         return current_Graph, cut_strain_means, expected_changes
 
 
-with open("found_cut.json", "r", encoding="utf-8") as file:
+with open("second_found_cut.json", "r", encoding="utf-8") as file:
     data = json.load(file)
 
 flip_history = data["flip_history"]
 S = data["S"]
 T = data["T"]
 
-Graph, replay_cut_strain, replay_expected_changes = replay_flip_history(Graph, S, T, flip_history)
+Replay = True
+if Replay == True:
+    new_Graph, replay_cut_strain, replay_expected_changes = replay_flip_history(Graph, S, T, flip_history)
 
-plt.figure(figsize=(10, 5))
-plt.plot(
-        range(1, 152),
-        replay_cut_strain,
-        label="Estimated expected change"
+    #print("Expected:" ,replay_expected_changes)
+    #print("Actual:",replay_cut_strain)
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(
+            range(1, 152),
+            replay_cut_strain,
+            label="Actual change"
+        )
+    plt.axhline(0, color="black", linestyle="--")
+    plt.xlabel("Flip step")
+    plt.ylabel("Actual change in cut strain")
+    plt.title("Actual cut strain change over 90 flips")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(
+            range(1, 152),
+            replay_expected_changes,
+            label="Estimated expected change"
+        )
+    plt.axhline(0, color="black", linestyle="--")
+    plt.xlabel("Flip step")
+    plt.ylabel("Expected change in cut strain")
+    plt.title("Expected cut strain change over 90 flips")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+
+
+def plot_expected_changes(Graph, S, T, flip_history,
+                          step=87, repetitions=50, samples=100000):
+
+    if not 0 <= step <= len(flip_history):
+        raise ValueError("Step liegt außerhalb der Flip-History.")
+
+    # Graphzustand des gewünschten Steps rekonstruieren
+    current_Graph = Graph.copy()
+
+    for i in range(step):
+        flip = flip_history[i]
+
+        old_edges = [tuple(e) for e in flip["removed_edges"]]
+        new_edges = [tuple(e) for e in flip["added_edges"]]
+
+        current_Graph.remove_edges_from(old_edges)
+        current_Graph.add_edges_from(new_edges)
+
+    # Ergebnisse speichern
+    expected_out = []
+    expected_in = []
+    expected_directed = []
+
+    # Erwartete Änderungen mehrfach schätzen
+    for i in range(repetitions):
+
+        out, incoming, directed = (
+            expected_cut_strain_change_in_and_out(
+                current_Graph, S, T, samples
+            )
+        )
+
+        expected_out.append(out)
+        expected_in.append(incoming)
+        expected_directed.append(directed)
+
+        print(f"Durchlauf {i + 1}/{repetitions}")
+
+    # Diagramm
+    x = range(1, repetitions + 1)
+
+    plt.figure(figsize=(12, 6))
+
+    plt.plot(x, expected_out,
+             color="blue", label="Expected Outgoing")
+
+    plt.plot(x, expected_in,
+             color="orange", label="Expected Incoming")
+
+    plt.plot(x, expected_directed,
+             color="green", label="Expected Directed")
+
+    plt.axhline(0, color="black", linestyle="--", linewidth=0.8)
+
+    plt.xlabel("Durchlauf")
+    plt.ylabel("Geschätzte erwartete Cut-Strain-Änderung")
+    plt.title(f"Expected Cut Strain Change – Step {step}")
+
+    plt.legend()
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
+    return expected_out, expected_in, expected_directed
+
+
+show_exp_changes = False
+if show_exp_changes == True:
+    out88, in88, directed88 = plot_expected_changes(
+        Graph, S, T, flip_history,
+        step=91,
+        repetitions=50,
+        samples=100000
     )
-plt.axhline(0, color="black", linestyle="--")
-plt.xlabel("Flip step")
-plt.ylabel("Actual change in cut strain")
-plt.title("Actual cut strain change over 150 flips")
-plt.legend()
-plt.tight_layout()
-plt.show()
-
-
-plt.figure(figsize=(10, 5))
-plt.plot(
-        range(1, 152),
-        replay_expected_changes,
-        label="Estimated expected change"
-    )
-plt.axhline(0, color="black", linestyle="--")
-plt.xlabel("Flip step")
-plt.ylabel("Expected change in cut strain")
-plt.title("Expected cut strain change over 150 flips")
-plt.legend()
-plt.tight_layout()
-plt.show()
-
-
-
