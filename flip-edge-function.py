@@ -94,11 +94,65 @@ def create_ring_of_cliques(cliquenumbers:int):
     T = set(Graph.nodes())- S
     return Graph, S, T
 
+def flip_edge_at_path(Graph: networkx.Graph, path):
+
+    node1, node2, node3, node4 = path
+
+    old_edges = {
+        (node1, node2),
+        (node2, node3),
+        (node3, node4)
+    }
+
+    new_edges = {
+        (node1, node3),
+        (node2, node4),
+        (node3, node2)
+    }
+
+
+    if not all(Graph.has_edge(*edge) for edge in old_edges):
+        raise ValueError("Not all edges exist.")
+
+
+    if len(old_edges) != 3:
+        raise ValueError("An edge has been choosen twice.")
+
+
+    if any(
+        Graph.has_edge(*edge) and edge not in old_edges
+        for edge in new_edges
+    ):
+        raise ValueError("A new edge already exists.")
+
+    removed_edges = old_edges - new_edges
+    added_edges = new_edges - old_edges
+
+    if degree_changes(removed_edges) != degree_changes(added_edges):
+        raise ValueError("Flip changes degrees.")
+
+    new_Graph = Graph.copy()
+    new_Graph.remove_edges_from(old_edges)
+    new_Graph.add_edges_from(new_edges)
+
+    return new_Graph, old_edges, new_edges
 
 Ring_of_cliques, S, T = create_ring_of_cliques(2)
 
+path = [8, 5, 9, 8]
 
-new_clique, _, _ = flip_edge(Ring_of_cliques)
-print("Edges after one flip, ready to be pasted into Graph editor :) ")
+new_clique, old, new = flip_edge_at_path(
+    Ring_of_cliques, path
+)
+
+print("Old edges:", sorted(old))
+print("New edges:", sorted(new))
+
+print("Edges after one flip:")
+
 for u, v in new_clique.edges:
-    print(u,v)
+    print(u, v)
+
+
+
+
